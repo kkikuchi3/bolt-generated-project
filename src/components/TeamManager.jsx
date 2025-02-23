@@ -3,36 +3,34 @@ import React, { useState } from 'react'
 function TeamManager({ socket }) {
   const [teamName, setTeamName] = useState('')
 
-  const createTeam = () => {
-    if (!teamName.trim()) return
-
-    const newTeam = {
-      id: Date.now().toString(),
-      name: teamName
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (socket && teamName.trim()) {
+      socket.emit('createTeam', { name: teamName })
+      setTeamName('')
     }
-
-    socket.emit('createTeam', newTeam)
-    setTeamName('')
   }
 
   return (
-    <div className="bg-white p-4 rounded shadow">
-      <h2 className="text-xl font-bold mb-4">Team Management</h2>
-      <div className="flex">
-        <input 
-          type="text" 
-          value={teamName}
-          onChange={(e) => setTeamName(e.target.value)}
-          placeholder="Team Name" 
-          className="flex-grow p-2 border rounded-l"
-        />
-        <button 
-          onClick={createTeam}
-          className="bg-blue-500 text-white p-2 rounded-r"
+    <div className="bg-white p-4 rounded-lg shadow">
+      <h2 className="text-xl font-semibold mb-4">チーム管理</h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <input
+            type="text"
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            placeholder="チーム名"
+            className="w-full p-2 border rounded"
+          />
+        </div>
+        <button
+          type="submit"
+          className="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
         >
-          Create Team
+          チームを追加
         </button>
-      </div>
+      </form>
     </div>
   )
 }

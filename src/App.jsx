@@ -1,41 +1,26 @@
-import React, { useState, useEffect } from 'react'
-import { io } from 'socket.io-client'
-import Stopwatch from './components/Stopwatch'
-import TeamManager from './components/TeamManager'
-import Leaderboard from './components/Leaderboard'
+import React from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import Navbar from './components/Navbar'
+import TimerPage from './pages/TimerPage'
+import TeamManagementPage from './pages/TeamManagementPage'
+import RacerInputPage from './pages/RacerInputPage'
+import RankingsPage from './pages/RankingsPage'
 
 function App() {
-  const [socket, setSocket] = useState(null)
-  const [teams, setTeams] = useState([])
-  const [lapTimes, setLapTimes] = useState({})
-
-  useEffect(() => {
-    const newSocket = io('http://localhost:5000')
-    setSocket(newSocket)
-
-    newSocket.on('teamCreated', (team) => {
-      setTeams(prev => [...prev, team])
-    })
-
-    newSocket.on('lapTimeRecorded', (lapTime) => {
-      setLapTimes(prev => ({
-        ...prev,
-        [lapTime.teamId]: [...(prev[lapTime.teamId] || []), lapTime]
-      }))
-    })
-
-    return () => newSocket.close()
-  }, [])
-
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Relay Stopwatch</h1>
-      <div className="grid grid-cols-3 gap-4">
-        <TeamManager socket={socket} />
-        <Stopwatch socket={socket} teams={teams} />
-        <Leaderboard lapTimes={lapTimes} />
+    <Router>
+      <div className="min-h-screen bg-gray-100">
+        <Navbar />
+        <main className="container mx-auto px-4 py-8">
+          <Routes>
+            <Route path="/" element={<TimerPage />} />
+            <Route path="/team-management" element={<TeamManagementPage />} />
+            <Route path="/racer-input" element={<RacerInputPage />} />
+            <Route path="/rankings" element={<RankingsPage />} />
+          </Routes>
+        </main>
       </div>
-    </div>
+    </Router>
   )
 }
 

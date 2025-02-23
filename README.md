@@ -27,16 +27,25 @@ DB_PORT=3306
 
 ### 4. 依存関係インストール
 ```bash
+# プロジェクトの依存関係をインストール
 npm install
+
+# 開発用の依存関係をインストール
+npm install -D @vitejs/plugin-react react react-dom
+npm install -D tailwindcss postcss autoprefixer
+npm install socket.io-client
+
+# Tailwind CSSの初期化
+npx tailwindcss init -p
 ```
 
-### 起動方法
+### 5. 開発サーバーの起動
 ```bash
-# フロントエンド
-npm run dev
-
-# バックエンド
+# バックエンドサーバーを起動（ポート5000）
 npm run server
+
+# 別のターミナルでフロントエンドサーバーを起動（ポート3000）
+npm run dev
 ```
 
 ### トラブルシューティング
