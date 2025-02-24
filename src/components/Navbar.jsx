@@ -44,6 +44,12 @@ function Navbar() {
               >
                 順位表
               </Link>
+              <Link
+                to="/live-results"
+                className="inline-flex items-center px-1 pt-1 text-gray-900 hover:text-gray-500"
+              >
+                リアルタイム結果
+              </Link>
             </div>
           </div>
         </div>
