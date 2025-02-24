@@ -15,9 +15,13 @@ const io = new Server(httpServer, {
 })
 
 let teams = []
+let lapTimes = []  // サーバー側でラップタイムを保持
 
 io.on('connection', (socket) => {
   console.log('Client connected')
+
+  // 接続時に現在のラップタイムを送信
+  socket.emit('initialLapTimes', lapTimes)
 
   socket.on('createTeam', (data) => {
     const team = {
@@ -28,8 +32,11 @@ io.on('connection', (socket) => {
     io.emit('teamCreated', team)
   })
 
-  socket.on('recordLapTime', (data) => {
-    io.emit('lapTimeRecorded', data)
+  // 新しいラップタイムを受信
+  socket.on('recordLap', (lapData) => {
+    lapTimes.push(lapData)
+    // 全クライアントにブロードキャスト
+    io.emit('lapTimeUpdated', lapTimes)
   })
 })
 

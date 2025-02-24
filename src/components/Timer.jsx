@@ -1,55 +1,47 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useCallback, useState, useEffect } from 'react'
+import { useTimer } from '../contexts/TimerContext'
 
 function Timer({ onRecord }) {
-  const [time, setTime] = useState(0)
-  const [isRunning, setIsRunning] = useState(false)
-  const [laps, setLaps] = useState([])
-  const [lastLapTime, setLastLapTime] = useState(0)
+  const { 
+    time, 
+    setTime,
+    isRunning, 
+    setIsRunning, 
+    laps, 
+    setLaps, 
+    socket  // TimerContextからsocketを取得
+  } = useTimer()
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [gamepad, setGamepad] = useState(null)
+  const [showHelp, setShowHelp] = useState(false)
 
+  // ゲームパッドの接続監視
   useEffect(() => {
-    let interval
-    if (isRunning) {
-      interval = setInterval(() => {
-        setTime(prevTime => prevTime + 10)
-      }, 10)
+    const handleGamepadConnected = (e) => {
+      console.log("Gamepad connected:", e.gamepad)
+      setGamepad(e.gamepad)
     }
-    return () => clearInterval(interval)
-  }, [isRunning])
 
-  // 現在時刻の更新
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-    return () => clearInterval(timer)
+    const handleGamepadDisconnected = () => {
+      console.log("Gamepad disconnected")
+      setGamepad(null)
+    }
+
+    window.addEventListener("gamepadconnected", handleGamepadConnected)
+    window.addEventListener("gamepaddisconnected", handleGamepadDisconnected)
+
+    return () => {
+      window.removeEventListener("gamepadconnected", handleGamepadConnected)
+      window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected)
+    }
   }, [])
 
-  const handleStart = () => {
-    setIsRunning(true)
-    setLastLapTime(time)
-  }
-
-  const handleStop = () => {
-    setIsRunning(false)
-    // 最終ラップを記録
-    if (time > lastLapTime) {
-      handleLap()
-    }
-  }
-
-  const handleReset = () => {
-    setTime(0)
-    setLaps([])
-    setLastLapTime(0)
-    setIsRunning(false)
-  }
-
-  const handleLap = useCallback(() => {
+  const recordLap = useCallback(() => {
     const lapNumber = laps.length + 1
     const newLap = {
+      id: Date.now(),
       number: lapNumber,
-      totalTime: Math.floor(time / 1000) * 1000, // ミリ秒以下を切り捨て
+      totalTime: Math.floor(time / 1000) * 1000,
       timestamp: currentTime.toLocaleTimeString('ja-JP', {
         hour: '2-digit',
         minute: '2-digit',
@@ -59,8 +51,113 @@ function Timer({ onRecord }) {
     }
 
     setLaps(prevLaps => [...prevLaps, newLap])
-    onRecord(newLap)
-  }, [time, laps.length, currentTime, onRecord])
+    socket.emit('recordLap', newLap)
+  }, [time, laps.length, currentTime, socket, setLaps])
+
+  const handleStart = useCallback(() => {
+    setIsRunning(true)
+  }, [setIsRunning])
+
+  const handleStop = useCallback(() => {
+    if (isRunning) {
+      recordLap()
+      setIsRunning(false)
+    }
+  }, [isRunning, recordLap, setIsRunning])
+
+  const handleLap = useCallback(() => {
+    if (isRunning) {
+      recordLap()
+    }
+  }, [isRunning, recordLap])
+
+  const handleReset = useCallback(() => {
+    setTime(0)
+    setLaps([])
+    localStorage.removeItem('timerLaps')
+    localStorage.removeItem('unsyncedLaps')
+    setIsRunning(false)
+  }, [setTime, setLaps, setIsRunning])
+
+  // ゲームパッドの入力監視
+  useEffect(() => {
+    let animationFrameId
+    let lastPressTime = 0
+    const DEBOUNCE_TIME = 300 // ボタン連打防止用
+
+    const checkGamepadInput = () => {
+      const gamepads = navigator.getGamepads()
+      const activeGamepad = gamepads[0]
+      const currentTime = Date.now()
+
+      if (activeGamepad) {
+        if (currentTime - lastPressTime > DEBOUNCE_TIME) {
+          // Aボタン (0) でスタート/ストップ
+          if (activeGamepad.buttons[0].pressed) {
+            lastPressTime = currentTime
+            if (!isRunning) handleStart()
+            else handleStop()
+          }
+          // Bボタン (1) でラップ
+          if (activeGamepad.buttons[1].pressed && isRunning) {
+            lastPressTime = currentTime
+            handleLap()
+          }
+          // Xボタン (2) でリセット
+          if (activeGamepad.buttons[2].pressed && !isRunning && time > 0) {
+            lastPressTime = currentTime
+            handleReset()
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(checkGamepadInput)
+    }
+
+    if (gamepad) {
+      checkGamepadInput()
+    }
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId)
+      }
+    }
+  }, [gamepad, isRunning, time, handleStart, handleStop, handleLap, handleReset])
+
+  // キーボード入力の監視
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          if (!isRunning) handleStart()
+          else handleStop()
+          break
+        case 'Enter':
+          e.preventDefault()
+          if (isRunning) handleLap()
+          break
+        case 'KeyR':
+          e.preventDefault()
+          if (!isRunning && time > 0) handleReset()
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [isRunning, time, handleStart, handleStop, handleLap, handleReset])
+
+  // 現在時刻の更新
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const formatDisplayTime = (ms) => {
     const hours = Math.floor(ms / 3600000)
@@ -88,6 +185,32 @@ function Timer({ onRecord }) {
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md relative">
+      {/* ヘルプボタン */}
+      <button
+        onClick={() => setShowHelp(!showHelp)}
+        className="absolute top-2 left-4 text-gray-500 hover:text-gray-700"
+      >
+        {showHelp ? '❌' : '❔'}
+      </button>
+
+      {/* 操作方法の説明 (表示・非表示切り替え) */}
+      {showHelp && (
+        <div className="absolute top-12 left-4 bg-white border border-gray-200 rounded-lg p-4 shadow-lg z-10">
+          <div className="text-sm text-gray-600 space-y-2">
+            <div>スペース / Aボタン: スタート/ストップ</div>
+            <div>Enter / Bボタン: ラップ</div>
+            <div>R / Xボタン: リセット</div>
+            <div className="pt-2 border-t border-gray-200">
+              {gamepad ? (
+                <span className="text-green-600">🎮 コントローラー接続中</span>
+              ) : (
+                <span className="text-gray-400">🎮 コントローラー未接続</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 現在時刻 */}
       <div className="absolute top-2 right-4">
         <div className="text-2xl font-mono text-gray-600">
@@ -96,7 +219,7 @@ function Timer({ onRecord }) {
       </div>
 
       {/* メインタイマー */}
-      <div className="text-6xl md:text-7xl font-mono text-center mb-12 tabular-nums tracking-tight pt-8">
+      <div className="text-6xl md:text-7xl font-mono text-center mb-12 tabular-nums tracking-tight pt-16">
         {formatDisplayTime(time)}
       </div>
 
