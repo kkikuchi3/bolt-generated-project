@@ -1,10 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import io from 'socket.io-client'
+import { useSocket } from './SocketContext'
 
 const TimerContext = createContext()
-// 環境変数またはwindowのロケーションからホストIPを取得
-const HOST = window.location.hostname
-const socket = io(`http://${HOST}:5000`)
 
 export function useTimer() {
   return useContext(TimerContext)
@@ -15,6 +12,37 @@ export function TimerProvider({ children }) {
   const [isRunning, setIsRunning] = useState(false)
   const [laps, setLaps] = useState([])
   const [liveResults, setLiveResults] = useState([])
+  const { socket, isConnected } = useSocket()
+
+  // Socket.IOイベントの監視
+  useEffect(() => {
+    if (!socket) return
+
+    console.log('TimerContext: Setting up socket listeners')
+
+    const handleLiveResults = (data) => {
+      console.log('TimerContext: Received live results:', data)
+      if (Array.isArray(data)) {
+        setLaps(data)
+        setLiveResults(data)
+      }
+    }
+
+    // リスナーを登録
+    socket.on('liveResultsUpdated', handleLiveResults)
+
+    // 接続時にデータをリクエスト
+    if (isConnected) {
+      console.log('TimerContext: Connected to server')
+      socket.emit('getLiveResults')
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('liveResultsUpdated', handleLiveResults)
+      }
+    }
+  }, [socket, isConnected])
 
   // タイマーの更新
   useEffect(() => {
@@ -26,37 +54,6 @@ export function TimerProvider({ children }) {
     }
     return () => clearInterval(interval)
   }, [isRunning])
-
-  // Socket.IOイベントの監視
-  useEffect(() => {
-    console.log('TimerContext: Setting up socket listeners')
-    
-    socket.emit('getLiveResults')
-
-    socket.on('connect', () => {
-      console.log('TimerContext: Connected to server')
-      socket.emit('getLiveResults')
-    })
-
-    socket.on('disconnect', () => {
-      console.log('TimerContext: Disconnected from server')
-    })
-
-    socket.on('liveResultsUpdated', (updatedLaps) => {
-      console.log('TimerContext: Received updated laps:', updatedLaps)
-      if (Array.isArray(updatedLaps)) {
-        setLaps(updatedLaps)
-        setLiveResults(updatedLaps)
-      }
-    })
-
-    return () => {
-      console.log('TimerContext: Cleaning up socket listeners')
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('liveResultsUpdated')
-    }
-  }, [])
 
   const value = {
     time,

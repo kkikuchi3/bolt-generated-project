@@ -1,87 +1,106 @@
-import React, { useEffect, useState } from 'react'
-import { useTimer } from '../contexts/TimerContext'
+import React, { useEffect, useState, useCallback } from 'react'
+import { useSocket } from '../contexts/SocketContext'
 
 function LiveResults() {
+  const { socket, isConnected } = useSocket()
   const [results, setResults] = useState([])
-  const [isConnected, setIsConnected] = useState(false)
-  const { socket } = useTimer()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
+  // データ取得関数
+  const fetchData = useCallback(() => {
+    if (socket && isConnected) {
+      console.log('LiveResults: Requesting data from server')
+      setLoading(true)
+      socket.emit('getLiveResults')
+    }
+  }, [socket, isConnected])
+
+  // 接続状態が変わったときの処理
+  useEffect(() => {
+    console.log('LiveResults: Connection state changed:', isConnected)
+    if (isConnected) {
+      fetchData()
+    }
+  }, [isConnected, fetchData])
+
+  // ソケットイベントのリスナー設定
   useEffect(() => {
     if (!socket) {
-      console.warn('No socket available')
+      console.log('LiveResults: Socket not available yet')
       return
     }
 
-    const handleConnect = () => {
-      console.log('LiveResults connected to server')
-      setIsConnected(true)
-      socket.emit('getLiveResults')
-    }
-
-    const handleDisconnect = () => {
-      console.log('LiveResults disconnected from server')
-      setIsConnected(false)
-    }
-
+    console.log('LiveResults: Setting up socket listeners')
+    
+    // 結果更新のリスナー
     const handleLiveResults = (data) => {
-      console.log('LiveResults received data:', data)
+      console.log('LiveResults: Received data:', data)
       if (Array.isArray(data)) {
-        console.log(`Setting ${data.length} results:`, data)
         setResults(data)
+        setLoading(false)
       } else {
-        console.warn('Received non-array data:', data)
+        console.warn('LiveResults: Received invalid data format')
+        setError('データ形式が不正です')
+        setLoading(false)
       }
     }
 
-    // 初期状態の設定
-    const isCurrentlyConnected = socket.connected
-    console.log('Current socket connection status:', isCurrentlyConnected)
-    setIsConnected(isCurrentlyConnected)
-    
-    if (isCurrentlyConnected) {
-      console.log('Requesting initial data on mount')
-      socket.emit('getLiveResults')
-    }
-
-    socket.on('connect', handleConnect)
-    socket.on('disconnect', handleDisconnect)
+    // リスナーを登録
     socket.on('liveResultsUpdated', handleLiveResults)
 
-    // コンポーネントのマウント時のデバッグ情報
-    console.log('LiveResults component mounted')
-
+    // クリーンアップ関数
     return () => {
-      console.log('LiveResults component unmounting')
-      socket.off('connect', handleConnect)
-      socket.off('disconnect', handleDisconnect)
+      console.log('LiveResults: Removing listeners')
       socket.off('liveResultsUpdated', handleLiveResults)
     }
   }, [socket])
 
-  // resultsの変更を監視
-  useEffect(() => {
-    console.log('Results updated:', results)
-  }, [results])
+  // 手動更新ボタンのハンドラー
+  const handleRefresh = () => {
+    fetchData()
+  }
 
   const formatTime = (ms) => {
-    if (!ms) return '00:00:00.00'
-    const hours = Math.floor(ms / 3600000)
-    const minutes = Math.floor((ms % 3600000) / 60000)
+    if (!ms && ms !== 0) return '00:00.00'
+    const minutes = Math.floor(ms / 60000)
     const seconds = Math.floor((ms % 60000) / 1000)
     const centiseconds = Math.floor((ms % 1000) / 10)
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`
   }
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">ラップ記録</h2>
-        <div className={`text-sm ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
-          {isConnected ? '接続中' : '未接続'}
+        <div className="flex items-center space-x-4">
+          <div className={`text-sm ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+            {isConnected ? '接続中' : '未接続'}
+          </div>
+          <button 
+            onClick={handleRefresh}
+            disabled={!isConnected}
+            className={`px-3 py-1 text-sm rounded ${
+              isConnected 
+                ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            更新
+          </button>
         </div>
       </div>
 
-      {results.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <span className="ml-2">読み込み中...</span>
+        </div>
+      ) : error ? (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      ) : results.length === 0 ? (
         <p className="text-gray-500 text-center py-4">記録はまだありません</p>
       ) : (
         <div className="overflow-x-auto">
@@ -101,7 +120,7 @@ function LiveResults() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {results.map((result) => (
-                <tr key={result.id}>
+                <tr key={result.id || result.number}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {result.number}
                   </td>

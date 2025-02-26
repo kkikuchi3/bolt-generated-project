@@ -9,7 +9,7 @@ function Timer({ onRecord }) {
     setIsRunning, 
     laps, 
     setLaps, 
-    socket  // TimerContextからsocketを取得
+    socket
   } = useTimer()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [gamepad, setGamepad] = useState(null)
@@ -50,10 +50,19 @@ function Timer({ onRecord }) {
     }
 
     console.log('Recording lap:', newLap)
-    socket.emit('recordLap', newLap)
+    
+    // socketが存在する場合のみemitを実行
+    if (socket) {
+      socket.emit('recordLap', newLap)
+    }
 
     setLaps(prevLaps => [...prevLaps, newLap])
-  }, [time, laps.length, currentTime, socket, setLaps])
+    
+    // onRecordが存在する場合のみ呼び出し
+    if (onRecord) {
+      onRecord(newLap)
+    }
+  }, [time, laps.length, currentTime, socket, setLaps, onRecord])
 
   const handleStart = useCallback(() => {
     setIsRunning(true)
@@ -75,8 +84,10 @@ function Timer({ onRecord }) {
   const handleReset = useCallback(() => {
     setTime(0)
     setLaps([])
-    // サーバーにリセット要求を送信
-    socket.emit('resetTimer')
+    // サーバーにリセット要求を送信（socketが存在する場合のみ）
+    if (socket) {
+      socket.emit('resetTimer')
+    }
   }, [setTime, setLaps, socket])
 
   // ゲームパッドの入力監視

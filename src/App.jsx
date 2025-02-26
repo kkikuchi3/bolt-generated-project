@@ -11,8 +11,8 @@ import LiveResultsPage from './pages/LiveResultsPage'
 
 function App() {
   return (
-    <TimerProvider>
-      <SocketProvider>
+    <SocketProvider>
+      <TimerProvider>
         <Router>
           <div className="min-h-screen bg-gray-100">
             <Navbar />
@@ -27,8 +27,8 @@ function App() {
             </main>
           </div>
         </Router>
-      </SocketProvider>
-    </TimerProvider>
+      </TimerProvider>
+    </SocketProvider>
   )
 }
 
