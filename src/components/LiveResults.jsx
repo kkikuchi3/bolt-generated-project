@@ -37,7 +37,14 @@ function LiveResults() {
     const handleLiveResults = (data) => {
       console.log('LiveResults: Received data:', data)
       if (Array.isArray(data)) {
-        setResults(data)
+        // データの構造をコンソールに出力して確認
+        if (data.length > 0) {
+          console.log('LiveResults: Sample data structure:', JSON.stringify(data[0]))
+        }
+        
+        // データを新しい順に並べ替え
+        const sortedData = [...data].reverse()
+        setResults(sortedData)
         setLoading(false)
       } else {
         console.warn('LiveResults: Received invalid data format')
@@ -46,13 +53,26 @@ function LiveResults() {
       }
     }
 
+    // 新しい記録が追加されたときのハンドラー
+    const handleNewResult = (data) => {
+      console.log('LiveResults: New result received:', data)
+      if (data) {
+        // 新しい記録を先頭に追加
+        setResults(prevResults => [data, ...prevResults])
+      }
+    }
+
     // リスナーを登録
     socket.on('liveResultsUpdated', handleLiveResults)
+    socket.on('newResult', handleNewResult)
+    socket.on('recordAdded', handleNewResult)
 
     // クリーンアップ関数
     return () => {
       console.log('LiveResults: Removing listeners')
       socket.off('liveResultsUpdated', handleLiveResults)
+      socket.off('newResult', handleNewResult)
+      socket.off('recordAdded', handleNewResult)
     }
   }, [socket])
 
@@ -61,13 +81,28 @@ function LiveResults() {
     fetchData()
   }
 
+  // タイム表示形式を整える関数
   const formatTime = (ms) => {
-    if (!ms && ms !== 0) return '00:00.00'
-    const minutes = Math.floor(ms / 60000)
-    const seconds = Math.floor((ms % 60000) / 1000)
-    const centiseconds = Math.floor((ms % 1000) / 10)
+    // 値がない場合や0の場合の処理
+    if (ms === undefined || ms === null) return '00:00.00'
+    
+    // 数値に変換
+    const timeMs = Number(ms)
+    if (isNaN(timeMs)) return '00:00.00'
+    
+    const minutes = Math.floor(timeMs / 60000)
+    const seconds = Math.floor((timeMs % 60000) / 1000)
+    const centiseconds = Math.floor((timeMs % 1000) / 10)
+    
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`
   }
+
+  // デバッグ用：データ構造を表示
+  useEffect(() => {
+    if (results.length > 0) {
+      console.log('LiveResults: Current results structure:', results[0])
+    }
+  }, [results])
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
@@ -104,34 +139,53 @@ function LiveResults() {
         <p className="text-gray-500 text-center py-4">記録はまだありません</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ラップ
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  No.
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  ゼッケン
+                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   タイム
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   記録時刻
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {results.map((result) => (
-                <tr key={result.id || result.number}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {result.number}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                    {formatTime(result.total_time)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {result.timestamp}
-                  </td>
-                </tr>
-              ))}
+              {results.map((result, index) => {
+                // 各フィールドの存在を確認してデバッグ
+                console.log(`Result ${index}:`, {
+                  id: result.id,
+                  bibNumber: result.bibNumber,
+                  number: result.number,
+                  time: result.time,
+                  total_time: result.total_time,
+                  lapTime: result.lapTime,
+                  timestamp: result.timestamp
+                });
+                
+                return (
+                  <tr key={result.id || index} className={index === 0 ? "bg-green-50" : ""}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {result.id || index + 1}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {result.bibNumber || result.number || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                      {formatTime(result.time || result.total_time || result.lapTime || 0)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {result.timestamp ? new Date(result.timestamp).toLocaleTimeString() : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
