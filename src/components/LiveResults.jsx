@@ -81,20 +81,20 @@ function LiveResults() {
     fetchData()
   }
 
-  // タイム表示形式を整える関数
+  // タイム表示形式を整える関数 - 00:00:00形式に変更
   const formatTime = (ms) => {
     // 値がない場合や0の場合の処理
-    if (ms === undefined || ms === null) return '00:00.00'
+    if (ms === undefined || ms === null) return '00:00:00'
     
     // 数値に変換
     const timeMs = Number(ms)
-    if (isNaN(timeMs)) return '00:00.00'
+    if (isNaN(timeMs)) return '00:00:00'
     
-    const minutes = Math.floor(timeMs / 60000)
+    const hours = Math.floor(timeMs / 3600000)
+    const minutes = Math.floor((timeMs % 3600000) / 60000)
     const seconds = Math.floor((timeMs % 60000) / 1000)
-    const centiseconds = Math.floor((timeMs % 1000) / 10)
     
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
   // デバッグ用：データ構造を表示
