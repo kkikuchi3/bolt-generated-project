@@ -4,16 +4,26 @@ import { useTimer } from '../contexts/TimerContext'
 function Timer({ onRecord }) {
   const { 
     time, 
-    setTime,
     isRunning, 
-    setIsRunning, 
     laps, 
     setLaps, 
-    socket
+    socket,
+    startTimer,
+    stopTimer,
+    resetTimer
   } = useTimer()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [gamepad, setGamepad] = useState(null)
   const [showHelp, setShowHelp] = useState(false)
+
+  // 現在時刻の更新
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    
+    return () => clearInterval(timer)
+  }, [])
 
   // ゲームパッドの接続監視
   useEffect(() => {
@@ -37,10 +47,13 @@ function Timer({ onRecord }) {
   }, [])
 
   const recordLap = useCallback(() => {
+    // コンマ以下を切り捨てたタイム（ミリ秒単位で1000で割って切り捨て、また1000をかける）
+    const truncatedTime = Math.floor(time / 1000) * 1000
+    
     const lapNumber = laps.length + 1
     const newLap = {
       number: lapNumber,
-      total_time: time,
+      total_time: truncatedTime,
       timestamp: currentTime.toLocaleTimeString('ja-JP', {
         hour: '2-digit',
         minute: '2-digit',
@@ -65,15 +78,17 @@ function Timer({ onRecord }) {
   }, [time, laps.length, currentTime, socket, setLaps, onRecord])
 
   const handleStart = useCallback(() => {
-    setIsRunning(true)
-  }, [setIsRunning])
+    startTimer()
+  }, [startTimer])
 
   const handleStop = useCallback(() => {
-    if (isRunning) {
-      recordLap() // 停止時にラップを記録
-      setIsRunning(false)
-    }
-  }, [isRunning, recordLap, setIsRunning])
+    stopTimer()
+    recordLap()
+  }, [stopTimer, recordLap])
+
+  const handleReset = useCallback(() => {
+    resetTimer()
+  }, [resetTimer])
 
   const handleLap = useCallback(() => {
     if (isRunning) {
@@ -81,167 +96,154 @@ function Timer({ onRecord }) {
     }
   }, [isRunning, recordLap])
 
-  const handleReset = useCallback(() => {
-    setTime(0)
-    setLaps([])
-    // サーバーにリセット要求を送信（socketが存在する場合のみ）
-    if (socket) {
-      socket.emit('resetTimer')
-    }
-  }, [setTime, setLaps, socket])
-
-  // ゲームパッドの入力監視
-  useEffect(() => {
-    let animationFrameId
-    let lastPressTime = 0
-    const DEBOUNCE_TIME = 300 // ボタン連打防止用
-
-    const checkGamepadInput = () => {
-      const gamepads = navigator.getGamepads()
-      const activeGamepad = gamepads[0]
-      const currentTime = Date.now()
-
-      if (activeGamepad) {
-        if (currentTime - lastPressTime > DEBOUNCE_TIME) {
-          // Aボタン (0) でスタート/ストップ
-          if (activeGamepad.buttons[0].pressed) {
-            lastPressTime = currentTime
-            if (!isRunning) handleStart()
-            else handleStop()
-          }
-          // Bボタン (1) でラップ
-          if (activeGamepad.buttons[1].pressed && isRunning) {
-            lastPressTime = currentTime
-            handleLap()
-          }
-          // Xボタン (2) でリセット
-          if (activeGamepad.buttons[2].pressed && !isRunning && time > 0) {
-            lastPressTime = currentTime
-            handleReset()
-          }
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(checkGamepadInput)
-    }
-
-    if (gamepad) {
-      checkGamepadInput()
-    }
-
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId)
-      }
-    }
-  }, [gamepad, isRunning, time, handleStart, handleStop, handleLap, handleReset])
-
-  // キーボード入力の監視
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault()
-          if (!isRunning) handleStart()
-          else handleStop()
-          break
-        case 'Enter':
-          e.preventDefault()
-          if (isRunning) handleLap()
-          break
-        case 'KeyR':
-          e.preventDefault()
-          if (!isRunning && time > 0) handleReset()
-          break
-        default:
-          break
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyPress)
-    return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [isRunning, time, handleStart, handleStop, handleLap, handleReset])
-
-  // 現在時刻の更新
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const formatDisplayTime = (ms) => {
+  // 時間表示のフォーマット (00:00:00.00形式)
+  const formatTime = (ms) => {
     const hours = Math.floor(ms / 3600000)
     const minutes = Math.floor((ms % 3600000) / 60000)
     const seconds = Math.floor((ms % 60000) / 1000)
     const centiseconds = Math.floor((ms % 1000) / 10)
+    
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`
   }
 
+  // ラップタイム表示のフォーマット (00:00:00形式 - コンマ以下切り捨て)
   const formatLapTime = (ms) => {
     const hours = Math.floor(ms / 3600000)
     const minutes = Math.floor((ms % 3600000) / 60000)
     const seconds = Math.floor((ms % 60000) / 1000)
+    
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
-  const formatCurrentTime = (date) => {
-    return date.toLocaleTimeString('ja-JP', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    })
-  }
+  // キーボードショートカット
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        if (isRunning) {
+          handleStop()
+        } else {
+          handleStart()
+        }
+      } else if (e.code === 'KeyL' && isRunning) {
+        e.preventDefault()
+        handleLap()
+      } else if (e.code === 'KeyR' && !isRunning && time > 0) {
+        e.preventDefault()
+        handleReset()
+      } else if (e.code === 'KeyH') {
+        e.preventDefault()
+        setShowHelp(prev => !prev)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isRunning, time, handleStart, handleStop, handleLap, handleReset])
+
+  // ゲームパッドの状態を監視
+  useEffect(() => {
+    if (!gamepad) return
+
+    let animationId
+    let lastButtonState = {}
+
+    const checkGamepad = () => {
+      const gamepads = navigator.getGamepads()
+      const gp = gamepads[gamepad.index]
+      
+      if (!gp) return
+      
+      // Aボタン (0) - スタート/ストップ
+      if (gp.buttons[0].pressed && !lastButtonState[0]) {
+        if (isRunning) {
+          handleStop()
+        } else {
+          handleStart()
+        }
+      }
+      
+      // Bボタン (1) - ラップ
+      if (gp.buttons[1].pressed && !lastButtonState[1] && isRunning) {
+        handleLap()
+      }
+      
+      // Xボタン (2) - リセット
+      if (gp.buttons[2].pressed && !lastButtonState[2] && !isRunning && time > 0) {
+        handleReset()
+      }
+      
+      // ボタンの状態を保存
+      for (let i = 0; i < gp.buttons.length; i++) {
+        lastButtonState[i] = gp.buttons[i].pressed
+      }
+      
+      animationId = requestAnimationFrame(checkGamepad)
+    }
+    
+    animationId = requestAnimationFrame(checkGamepad)
+    
+    return () => {
+      cancelAnimationFrame(animationId)
+    }
+  }, [gamepad, isRunning, time, handleStart, handleStop, handleLap, handleReset])
 
   return (
-    <div className="bg-white p-4 sm:p-6 rounded-lg shadow-md relative">
-      {/* ヘルプボタン */}
-      <button
-        onClick={() => setShowHelp(!showHelp)}
-        className="absolute top-2 left-2 sm:left-4 text-gray-500 hover:text-gray-700 p-2"
-      >
-        {showHelp ? '❌' : '❔'}
-      </button>
-
-      {/* 操作方法の説明 */}
+    <div className="bg-white p-6 rounded-lg shadow-md">
+      {/* ヘルプモーダル */}
       {showHelp && (
-        <div className="absolute top-12 left-2 sm:left-4 bg-white border border-gray-200 rounded-lg p-3 sm:p-4 shadow-lg z-10 text-xs sm:text-sm">
-          <div className="text-gray-600 space-y-1 sm:space-y-2">
-            <div>スペース / Aボタン: スタート/ストップ</div>
-            <div>Enter / Bボタン: ラップ</div>
-            <div>R / Xボタン: リセット</div>
-            <div className="pt-2 border-t border-gray-200">
-              {gamepad ? (
-                <span className="text-green-600">🎮 コントローラー接続中</span>
-              ) : (
-                <span className="text-gray-400">🎮 コントローラー未接続</span>
-              )}
-            </div>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowHelp(false)}>
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-medium mb-4">キーボードショートカット</h3>
+            <ul className="space-y-2">
+              <li><span className="font-mono bg-gray-100 px-2 py-1 rounded">Space</span> - スタート/ストップ</li>
+              <li><span className="font-mono bg-gray-100 px-2 py-1 rounded">L</span> - ラップを記録</li>
+              <li><span className="font-mono bg-gray-100 px-2 py-1 rounded">R</span> - リセット</li>
+              <li><span className="font-mono bg-gray-100 px-2 py-1 rounded">H</span> - ヘルプを表示/非表示</li>
+            </ul>
+            <button
+              onClick={() => setShowHelp(false)}
+              className="mt-6 w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600"
+            >
+              閉じる
+            </button>
           </div>
         </div>
       )}
 
-      {/* 現在時刻 */}
-      <div className="absolute top-2 right-2 sm:right-4">
-        <div className="text-xl sm:text-2xl font-mono text-gray-600">
-          {formatCurrentTime(currentTime)}
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-semibold">ストップウォッチ</h2>
+        <button
+          onClick={() => setShowHelp(true)}
+          className="text-gray-500 hover:text-gray-700"
+          title="ヘルプを表示"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
+
+      {/* タイマー表示 */}
+      <div className="text-center mb-6">
+        <div className="text-4xl xs:text-5xl sm:text-6xl font-mono font-semibold tracking-wider overflow-x-auto whitespace-nowrap">
+          {formatTime(time)}
+        </div>
+        <div className="text-sm text-gray-500 mt-2">
+          現在時刻: {currentTime.toLocaleTimeString()}
         </div>
       </div>
 
-      {/* メインタイマー */}
-      <div className="text-5xl sm:text-6xl md:text-7xl font-mono text-center mb-8 sm:mb-12 tabular-nums tracking-tight pt-12 sm:pt-16">
-        {formatDisplayTime(time)}
-      </div>
-
-      {/* ボタン類 */}
-      <div className="grid grid-cols-1 gap-3 sm:gap-4 mb-6 sm:mb-8">
+      {/* コントロールボタン */}
+      <div className="grid grid-cols-1 gap-4">
         {/* ラップボタン */}
-        <div className="flex justify-center">
+        <div className="flex justify-center mb-2">
           <button
             onClick={handleLap}
             disabled={!isRunning}
-            className={`w-full sm:w-64 py-4 sm:py-5 text-white text-lg sm:text-xl rounded-lg font-medium ${
+            className={`w-full max-w-xs py-2 sm:py-3 text-white text-base rounded-lg font-medium ${
               isRunning
                 ? 'bg-blue-500 hover:bg-blue-600 focus:ring-2 focus:ring-blue-500'
                 : 'bg-blue-300 cursor-not-allowed'
@@ -252,10 +254,10 @@ function Timer({ onRecord }) {
         </div>
 
         {/* スタート/ストップとリセットボタン */}
-        <div className="flex justify-center space-x-3 sm:space-x-4">
+        <div className="grid grid-cols-2 gap-4">
           <button
             onClick={isRunning ? handleStop : handleStart}
-            className={`w-full sm:w-40 py-3 sm:py-4 text-white text-base sm:text-lg rounded-lg font-medium ${
+            className={`py-3 sm:py-4 text-white text-base sm:text-lg rounded-lg font-medium ${
               !isRunning
                 ? 'bg-green-500 hover:bg-green-600 focus:ring-2 focus:ring-green-500'
                 : 'bg-red-500 hover:bg-red-600 focus:ring-2 focus:ring-red-500'
@@ -267,7 +269,7 @@ function Timer({ onRecord }) {
           <button
             onClick={handleReset}
             disabled={time === 0 || isRunning}
-            className={`w-full sm:w-40 py-3 sm:py-4 text-white text-base sm:text-lg rounded-lg font-medium ${
+            className={`py-3 sm:py-4 text-white text-base sm:text-lg rounded-lg font-medium ${
               time > 0 && !isRunning
                 ? 'bg-gray-500 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500'
                 : 'bg-gray-300 cursor-not-allowed'

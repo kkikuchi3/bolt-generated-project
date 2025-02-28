@@ -1,228 +1,327 @@
-import express from 'express'
-import { createServer } from 'http'
-import { Server } from 'socket.io'
-import cors from 'cors'
-import mysql from 'mysql2/promise'
-import dotenv from 'dotenv'
+import dotenv from 'dotenv';
+dotenv.config();
 
-dotenv.config()
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import mysql from 'mysql2/promise';
+import util from 'util';
 
-// MySQL接続プールの作成（データベース指定なし）
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
+const PORT = process.env.PORT || 5000;
+const DB_CONFIG = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD,
-  port: parseInt(process.env.DB_PORT),
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-})
+  database: process.env.DB_NAME || 'relay_stopwatch',
+  port: parseInt(process.env.DB_PORT) || 3306
+};
 
-// データベース初期化関数
-async function initializeDatabase() {
-  let connection;
-  try {
-    // まず接続を確立
-    connection = await pool.getConnection();
-    console.log('Successfully connected to MySQL database');
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-    // データベースが存在しない場合は作成
-    await connection.query(`CREATE DATABASE IF NOT EXISTS ${process.env.DB_NAME}`);
-    console.log('Database created or already exists');
-
-    // データベースを使用
-    await connection.query(`USE ${process.env.DB_NAME}`);
-    console.log('Using database:', process.env.DB_NAME);
-    
-    // テーブルの作成
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS lap_times (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        number INT NOT NULL,
-        total_time BIGINT NOT NULL,
-        timestamp VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('Table created or already exists');
-    
-    // テストデータの確認
-    const [rows] = await connection.query('SELECT * FROM lap_times');
-    console.log('Current records:', rows);
-
-    // 接続プールを再作成（データベースを指定）
-    pool.end();
-    global.pool = mysql.createPool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      port: parseInt(process.env.DB_PORT),
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-    
-  } catch (error) {
-    console.error('Database initialization error:', error);
-    process.exit(1);
-  } finally {
-    if (connection) connection.release();
-  }
-}
-
-// サーバー起動時に初期化を実行
-await initializeDatabase();
-
-const app = express()
-app.use(cors())
-
-const httpServer = createServer(app)
+const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "*",  // 開発時のみ。本番環境では適切なオリジンを指定
+    origin: "*",
     methods: ["GET", "POST"]
   }
-})
+});
 
-// グローバルなタイマー状態
-let globalTimerState = {
-  time: 0,
-  isRunning: false
-}
+let dbConnection = null;
+let liveResults = [];
+let dataCleared = false;
 
-// データベース接続テスト関数を追加
-async function testDatabaseConnection() {
+const serverLogs = [];
+const MAX_LOGS = 100;
+
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = function() {
+  const timestamp = new Date().toISOString();
+  const args = Array.from(arguments);
+  const message = util.format.apply(null, args);
+  const logEntry = { timestamp, level: 'INFO', message };
+  
+  serverLogs.push(logEntry);
+  if (serverLogs.length > MAX_LOGS) serverLogs.shift();
+  
+  originalConsoleLog.apply(console, [`[${timestamp}] [INFO] ${message}`]);
+};
+
+console.error = function() {
+  const timestamp = new Date().toISOString();
+  const args = Array.from(arguments);
+  const message = util.format.apply(null, args);
+  const logEntry = { timestamp, level: 'ERROR', message };
+  
+  serverLogs.push(logEntry);
+  if (serverLogs.length > MAX_LOGS) serverLogs.shift();
+  
+  originalConsoleError.apply(console, [`[${timestamp}] [ERROR] ${message}`]);
+};
+
+async function connectToDatabase() {
   try {
-    const connection = await pool.getConnection()
-    console.log('Database connection successful')
-    
-    // テストクエリを実行
-    const [rows] = await connection.query('SELECT * FROM lap_times')
-    console.log('Current records in database:', rows)
-    
-    connection.release()
+    const connection = await mysql.createConnection(DB_CONFIG);
+    console.log('データベースに接続しました');
+    return connection;
   } catch (error) {
-    console.error('Database connection test failed:', error)
+    console.error('データベース接続エラー:', error);
+    return null;
   }
 }
 
-// サーバー起動時にテスト実行
-testDatabaseConnection()
+async function initializeDatabase() {
+  console.log('データベース初期化を開始...');
+  
+  try {
+    console.log('データベース接続を開始...');
+    
+    if (!dbConnection) {
+      dbConnection = await connectToDatabase();
+    }
+    
+    if (dbConnection) {
+      try {
+        console.log('テーブルが存在するか確認...');
+        
+        const [tables] = await dbConnection.execute(
+          "SHOW TABLES LIKE 'lap_times'"
+        );
+        
+        if (tables.length === 0) {
+          console.log('テーブルが存在しない場合は作成（セッションIDなし）');
+          await dbConnection.execute(`
+            CREATE TABLE lap_times (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              number INT NOT NULL,
+              total_time BIGINT NOT NULL,
+              timestamp VARCHAR(255),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+          `);
+          console.log('lap_times テーブルを作成しました');
+        } else {
+          console.log('テーブル構造を確認');
+          const [columns] = await dbConnection.execute("DESCRIBE lap_times");
+          const hasSessionId = columns.some(col => col.Field === 'session_id');
+          
+          if (hasSessionId) {
+            console.log('session_id カラムを削除します...');
+            await dbConnection.execute("ALTER TABLE lap_times DROP COLUMN session_id");
+            console.log('session_id カラムを削除しました');
+          }
+        }
+        
+        console.log('データベースの初期化が完了しました');
+      } catch (error) {
+        console.error('テーブル作成/修正エラー:', error);
+      }
+    }
+  } catch (error) {
+    console.error('データベース初期化エラー:', error);
+  }
+}
 
-// グローバルプールを使用するように修正
-const getPool = () => global.pool || pool;
+async function getLapsFromDatabase(connection) {
+  if (!connection) return [];
+
+  try {
+    console.log('全てのラップタイムを取得');
+    
+    const [rows] = await connection.execute(
+      'SELECT * FROM lap_times ORDER BY number ASC'
+    );
+    
+    console.log(`データベースから ${rows.length} 件のデータを取得しました`);
+    return rows;
+  } catch (error) {
+    console.error('ラップタイム取得中にエラーが発生:', error);
+    return [];
+  }
+}
+
+async function saveLapToDatabase(lap, connection) {
+  if (!connection) return false;
+
+  try {
+    console.log('ラップタイムをデータベースに保存');
+    
+    const [result] = await connection.execute(
+      'INSERT INTO lap_times (number, total_time, timestamp) VALUES (?, ?, ?)',
+      [lap.number, lap.total_time, lap.timestamp]
+    );
+    
+    console.log(`ラップタイムをデータベースに保存しました: ID=${result.insertId}`);
+    return true;
+  } catch (error) {
+    console.error('ラップタイム保存中にエラーが発生:', error);
+    return false;
+  }
+}
+
+async function clearDatabase(connection) {
+  if (!connection) return false;
+
+  try {
+    console.log('データを削除');
+    
+    await connection.execute('DELETE FROM lap_times');
+    
+    console.log('AUTO_INCREMENT をリセット');
+    
+    await connection.execute('ALTER TABLE lap_times AUTO_INCREMENT = 1');
+    
+    console.log('データベースをクリアしました');
+    
+    liveResults = [];
+    dataCleared = true;
+    
+    return true;
+  } catch (error) {
+    console.error('データベースクリア中にエラーが発生:', error);
+    return false;
+  }
+}
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id)
-
-  // 接続時に保存されているラップタイムを送信
-  async function sendInitialData() {
-    try {
-      const currentPool = getPool();
-      const [rows] = await currentPool.query('SELECT * FROM lap_times ORDER BY number ASC');
-      console.log(`Sending ${rows.length} initial records to client ${socket.id}`);
-      socket.emit('liveResultsUpdated', rows);
-    } catch (error) {
-      console.error('Error sending initial data:', error);
-    }
-  }
+  console.log('新しいクライアント接続:', socket.id);
   
-  // 接続直後にデータを送信
-  sendInitialData();
-
-  // ラップタイム記録
-  socket.on('recordLap', async (lapData) => {
-    try {
-      console.log('Recording new lap:', lapData);
-      const currentPool = getPool();
-
-      // データベースに保存
-      await currentPool.query(
-        'INSERT INTO lap_times (number, total_time, timestamp) VALUES (?, ?, ?)',
-        [lapData.number, lapData.total_time, lapData.timestamp]
-      );
-
-      // 全データを取得して全クライアントに送信
-      const [rows] = await currentPool.query('SELECT * FROM lap_times ORDER BY number ASC');
-      console.log('Broadcasting updated records to all clients');
-      io.emit('liveResultsUpdated', rows);
-    } catch (error) {
-      console.error('Error recording lap:', error);
-    }
-  });
-
-  // リアルタイム結果の取得リクエスト
   socket.on('getLiveResults', async () => {
+    console.log('ライブ結果のリクエストを受信');
+    
     try {
-      const currentPool = getPool();
-      const [rows] = await currentPool.query('SELECT * FROM lap_times ORDER BY number ASC');
-      console.log(`Sending ${rows.length} records to client ${socket.id}`);
-      socket.emit('liveResultsUpdated', rows);
+      if (!dbConnection) {
+        dbConnection = await connectToDatabase();
+      }
+      
+      if (dbConnection) {
+        const dbResults = await getLapsFromDatabase(dbConnection);
+        
+        console.log(`クライアントに ${dbResults.length} 件のデータを送信します`);
+        socket.emit('liveResultsUpdated', dbResults);
+      } else {
+        console.log(`データベース接続なし。メモリ内の ${liveResults.length} 件のデータを送信します`);
+        socket.emit('liveResultsUpdated', liveResults);
+      }
     } catch (error) {
-      console.error('Error getting live results:', error);
+      console.error('ライブ結果の取得中にエラーが発生:', error);
+      socket.emit('liveResultsUpdated', liveResults);
     }
   });
-
-  // リセット処理
-  socket.on('resetTimer', async () => {
+  
+  socket.on('recordLap', async (lapData) => {
+    console.log('ラップタイム記録リクエストを受信:', lapData);
+    
     try {
-      const currentPool = getPool();
-      await currentPool.query('TRUNCATE TABLE lap_times');
-      console.log('Timer reset, all records cleared');
-      io.emit('liveResultsUpdated', []);
+      const newLap = {
+        number: lapData.number,
+        total_time: lapData.total_time,
+        timestamp: lapData.timestamp || new Date().toLocaleTimeString()
+      };
+      
+      liveResults.push(newLap);
+      
+      if (!dbConnection) {
+        dbConnection = await connectToDatabase();
+      }
+      
+      if (dbConnection) {
+        await saveLapToDatabase(newLap, dbConnection);
+      }
+      
+      const resultsToSend = [...liveResults];
+      resultsToSend.sort((a, b) => a.number - b.number);
+      io.emit('liveResultsUpdated', resultsToSend);
     } catch (error) {
-      console.error('Error resetting timer:', error);
+      console.error('ラップタイム記録中にエラーが発生:', error);
     }
   });
-
-  // チーム作成
-  socket.on('createTeam', async (data) => {
+  
+  socket.on('clearResults', async () => {
+    console.log('結果のクリアリクエストを受信');
+    
     try {
-      const teamId = Date.now().toString()
-      await pool.query(
-        'INSERT INTO teams (id, name) VALUES (?, ?)',
-        [teamId, data.name]
-      )
-      const team = { id: teamId, name: data.name }
-      io.emit('teamCreated', team)
+      if (!dbConnection) {
+        dbConnection = await connectToDatabase();
+      }
+      
+      if (dbConnection) {
+        await clearDatabase(dbConnection);
+        
+        io.emit('resultsCleared');
+        io.emit('liveResultsUpdated', []);
+      }
     } catch (error) {
-      console.error('Error creating team:', error)
+      console.error('結果のクリア中にエラーが発生:', error);
     }
-  })
-
-  // チーム別のラップタイム取得
-  socket.on('getTeamLaps', async (teamId) => {
-    try {
-      const [rows] = await pool.query(
-        'SELECT * FROM lap_times WHERE team_id = ? ORDER BY created_at DESC',
-        [teamId]
-      )
-      socket.emit('teamLapsReceived', rows)
-    } catch (error) {
-      console.error('Error fetching team laps:', error)
-    }
-  })
-
-  // 区間別のラップタイム取得
-  socket.on('getSectionLaps', async (section) => {
-    try {
-      const [rows] = await pool.query(
-        'SELECT * FROM lap_times WHERE section = ? ORDER BY created_at DESC',
-        [section]
-      )
-      socket.emit('sectionLapsReceived', rows)
-    } catch (error) {
-      console.error('Error fetching section laps:', error)
-    }
-  })
-
+  });
+  
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log('クライアントが切断しました:', socket.id);
   });
-})
+});
 
-const PORT = process.env.PORT || 5000
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-}) 
+app.get('/api/server-logs', (req, res) => {
+  res.json({
+    logs: serverLogs,
+    count: serverLogs.length
+  });
+});
+
+app.get('/api/clear-database', async (req, res) => {
+  try {
+    console.log('手動データベースクリアがリクエストされました');
+    
+    if (!dbConnection) {
+      dbConnection = await connectToDatabase();
+    }
+    
+    if (dbConnection) {
+      await clearDatabase(dbConnection);
+      
+      io.emit('resultsCleared');
+      io.emit('liveResultsUpdated', []);
+      
+      res.json({
+        success: true,
+        message: 'データベースが正常にクリアされました',
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: 'データベース接続が利用できません'
+      });
+    }
+  } catch (error) {
+    console.error('手動データベースクリア中にエラーが発生:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+httpServer.listen(PORT, async () => {
+  console.log(`サーバーが起動しました: http://localhost:${PORT}`);
+  
+  try {
+    console.log('サーバー起動時にデータベース初期化を実行');
+    await initializeDatabase();
+    
+    if (!dbConnection) {
+      dbConnection = await connectToDatabase();
+    }
+    
+    if (dbConnection) {
+      liveResults = await getLapsFromDatabase(dbConnection);
+      console.log(`起動時に ${liveResults.length} 件のデータを読み込みました`);
+    }
+  } catch (error) {
+    console.error('サーバー起動時のデータベース初期化エラー:', error);
+  }
+});

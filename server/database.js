@@ -16,34 +16,32 @@ const pool = mysql.createPool({
   queueLimit: 0
 })
 
-// データベース初期化関数
-async function initDatabase() {
+// データベース初期化関数を修正
+async function initializeDatabase() {
   try {
-    // チームテーブル作成
+    console.log('データベース初期化を開始...');
+    
+    // まずデータベースをリセット
+    await resetDatabase();
+    
+    // テーブルを新規作成（session_idカラムを含む）
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS teams (
-        id VARCHAR(255) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `)
-
-    // ラップタイムテーブル作成
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS lap_times (
+      CREATE TABLE lap_times (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        team_id VARCHAR(255),
-        lap_number INT,
-        lap_time INT,
-        total_time INT,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (team_id) REFERENCES teams(id)
+        number INT NOT NULL,
+        total_time BIGINT NOT NULL,
+        timestamp VARCHAR(255),
+        session_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
-    `)
-
-    console.log('データベース初期化完了')
+    `);
+    
+    console.log('データベース初期化完了（テーブル作成済み）');
+    return true;
   } catch (error) {
-    console.error('データベース初期化エラー:', error)
+    console.error('データベース初期化エラー:', error);
+    return false;
   }
 }
 
