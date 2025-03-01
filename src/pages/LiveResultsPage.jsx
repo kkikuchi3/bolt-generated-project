@@ -1,163 +1,154 @@
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../contexts/SocketContext';
-import { useTimer } from '../contexts/TimerContext';
-import { formatTime } from '../utils/timeUtils';
 
 function LiveResultsPage() {
+  const { socket, isConnected } = useSocket();
   const [results, setResults] = useState([]);
-  const [currentSessionId, setCurrentSessionId] = useState(null);
-  const { socket } = useSocket();
-  const { resultsCleared } = useTimer();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  // 結果データの取得
   useEffect(() => {
     if (!socket) return;
 
-    // 結果更新イベントのリスナー
+    // ライブ結果を受信
     const handleLiveResults = (data) => {
-      console.log('LiveResultsPage: Received live results data:', data.length, 'items');
-      
-      // データが配列でない場合は処理しない
-      if (!Array.isArray(data)) {
-        console.error('LiveResultsPage: Received invalid data format');
-        return;
-      }
-      
-      // セッションIDを取得（最初のデータから）
-      if (data.length > 0 && data[0].sessionId && !currentSessionId) {
-        setCurrentSessionId(data[0].sessionId);
-        console.log('LiveResultsPage: Set current session ID:', data[0].sessionId);
-      }
-      
-      // 現在のセッションIDに一致するデータのみをフィルタリング
-      if (currentSessionId) {
-        const filteredData = data.filter(item => {
-          const itemSessionId = item.sessionId || item.session_id;
-          return itemSessionId === currentSessionId;
-        });
-        
-        console.log('LiveResultsPage: Filtered data by session ID:', 
-          filteredData.length, 'of', data.length, 'items match session ID:', currentSessionId);
-        
-        // 番号順にソート
-        const sortedData = filteredData.sort((a, b) => a.number - b.number);
-        setResults(sortedData);
-      } else if (data.length > 0) {
-        // セッションIDがまだ設定されていない場合は、最初のデータのセッションIDを使用
-        const firstSessionId = data[0].sessionId || data[0].session_id;
-        if (firstSessionId) {
-          setCurrentSessionId(firstSessionId);
-          console.log('LiveResultsPage: Setting session ID from first data item:', firstSessionId);
-          
-          const filteredData = data.filter(item => {
-            const itemSessionId = item.sessionId || item.session_id;
-            return itemSessionId === firstSessionId;
-          });
-          
-          // 番号順にソート
-          const sortedData = filteredData.sort((a, b) => a.number - b.number);
-          setResults(sortedData);
-        } else {
-          // セッションIDがない場合は全データを表示
-          const sortedData = [...data].sort((a, b) => a.number - b.number);
-          setResults(sortedData);
-        }
-      } else {
-        // データがない場合は空の配列を設定
-        setResults([]);
-      }
+      console.log('Received live results:', data);
+      setResults(data);
+      setLoading(false);
     };
-    
-    // リセット確認イベントのリスナー
-    const handleResetConfirmed = (data) => {
-      console.log('LiveResultsPage: Reset confirmed:', data);
-      if (data && data.sessionId) {
-        setCurrentSessionId(data.sessionId);
-        console.log('LiveResultsPage: Updated session ID after reset:', data.sessionId);
-      }
-      setResults([]);
-    };
-    
-    // 結果クリアイベントのリスナー
+
+    // 結果クリア通知を受信
     const handleResultsCleared = () => {
-      console.log('LiveResultsPage: Results cleared event received');
+      console.log('Results cleared');
       setResults([]);
     };
-    
+
+    // エラー処理
+    const handleError = (err) => {
+      console.error('Error:', err);
+      setError(err.message || 'エラーが発生しました');
+      setLoading(false);
+    };
+
     // イベントリスナーを登録
     socket.on('liveResultsUpdated', handleLiveResults);
-    socket.on('resetConfirmed', handleResetConfirmed);
     socket.on('resultsCleared', handleResultsCleared);
-    
-    // 初期データのリクエスト
+    socket.on('error', handleError);
+
+    // 初期データをリクエスト
     socket.emit('getLiveResults');
-    
-    // クリーンアップ関数
+
     return () => {
       socket.off('liveResultsUpdated', handleLiveResults);
-      socket.off('resetConfirmed', handleResetConfirmed);
       socket.off('resultsCleared', handleResultsCleared);
+      socket.off('error', handleError);
     };
-  }, [socket, currentSessionId]);
-  
-  // タイマーがリセットされた時の処理
-  useEffect(() => {
-    if (resultsCleared) {
-      console.log('LiveResultsPage: Timer was reset, clearing results');
-      setResults([]);
-      setCurrentSessionId(null);
+  }, [socket]);
+
+  // 時間のフォーマット
+  const formatTime = (milliseconds) => {
+    if (milliseconds === undefined || milliseconds === null) {
+      return '00:00:00.00';
     }
-  }, [resultsCleared]);
+    
+    const ms = parseInt(milliseconds, 10);
+    if (isNaN(ms)) {
+      return '00:00:00.00';
+    }
+    
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    const centiseconds = Math.floor((ms % 1000) / 10);
+    
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+  };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">リアルタイム結果</h1>
+    <div className="max-w-6xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">ライブ結果</h1>
       
-      {results.length === 0 ? (
-        <p className="text-gray-500">まだ記録されたラップはありません</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white">
-            <thead>
-              <tr className="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">
-                <th className="py-3 px-6 text-left">No.</th>
-                <th className="py-3 px-6 text-left">タイム</th>
-                <th className="py-3 px-6 text-left">記録時刻</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-600 text-sm">
-              {results.map((result, index) => (
-                <tr key={index} className="border-b border-gray-200 hover:bg-gray-100">
-                  <td className="py-3 px-6 text-left">{result.number}</td>
-                  <td className="py-3 px-6 text-left">{formatTime(result.total_time)}</td>
-                  <td className="py-3 px-6 text-left">
-                    {new Date(result.timestamp).toLocaleTimeString()}
-                  </td>
+      {/* 接続状態表示 */}
+      <div className="mb-6">
+        <span className={`inline-block px-3 py-1 rounded-full text-sm ${
+          isConnected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+        }`}>
+          {isConnected ? 'サーバー接続中' : 'サーバー未接続'}
+        </span>
+      </div>
+      
+      {/* 結果テーブル */}
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="p-4 border-b">
+          <h2 className="text-xl font-semibold">ラップタイム一覧</h2>
+        </div>
+        
+        {loading ? (
+          <div className="p-8 text-center">
+            <p className="text-gray-500">データを読み込み中...</p>
+          </div>
+        ) : error ? (
+          <div className="p-8 text-center">
+            <p className="text-red-500">{error}</p>
+          </div>
+        ) : results.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-gray-500">まだ結果はありません</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    ラップ
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    走者
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    チーム
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    トータル
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    スプリット
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    記録日時
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      
-      {/* デバッグ情報（開発時のみ表示） */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-8 p-4 bg-gray-100 rounded">
-          <h3 className="font-bold">デバッグ情報:</h3>
-          <p>現在のセッションID: {currentSessionId || 'なし'}</p>
-          <p>表示中のデータ数: {results.length}</p>
-          <button 
-            className="mt-2 bg-red-500 text-white px-4 py-2 rounded"
-            onClick={() => {
-              if (socket) {
-                socket.emit('clearResults');
-                console.log('LiveResultsPage: Manually requested to clear results');
-              }
-            }}
-          >
-            データをクリア
-          </button>
-        </div>
-      )}
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {results.map((result, index) => (
+                  <tr key={index}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {result.number}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {result.racer_name || '未選択'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {result.team_name || '未所属'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap font-mono">
+                      {formatTime(result.total_time)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap font-mono">
+                      {formatTime(result.split_time)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {new Date(result.created_at || result.timestamp).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
