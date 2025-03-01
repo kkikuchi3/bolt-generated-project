@@ -1,0 +1,6 @@
+{
+  "debugMode": false,
+  "logLevel": "info",
+  "autoSave": true,
+  "sessionTimeout": 30
+}
