@@ -8,6 +8,7 @@ import TeamManagementPage from './pages/TeamManagementPage'
 import RacerInputPage from './pages/RacerInputPage'
 import RankingsPage from './pages/RankingsPage'
 import LiveResultsPage from './pages/LiveResultsPage'
+import AdminPage from './pages/AdminPage'
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
                 <Route path="/racer-input" element={<RacerInputPage />} />
                 <Route path="/rankings" element={<RankingsPage />} />
                 <Route path="/live-results" element={<LiveResultsPage />} />
+                <Route path="/admin" element={<AdminPage />} />
               </Routes>
             </main>
           </div>

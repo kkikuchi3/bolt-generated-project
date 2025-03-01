@@ -40,16 +40,6 @@ function Navbar() {
                 ストップウォッチ
               </Link>
               <Link
-                to="/racer-input"
-                className={`px-3 py-2 rounded-md text-sm font-medium ${
-                  isActive('/racer-input') 
-                    ? 'bg-gray-900 text-white' 
-                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                ゼッケン入力
-              </Link>
-              <Link
                 to="/team-management"
                 className={`px-3 py-2 rounded-md text-sm font-medium ${
                   isActive('/team-management') 
@@ -58,6 +48,16 @@ function Navbar() {
                 }`}
               >
                 チーム管理
+              </Link>
+              <Link
+                to="/racer-input"
+                className={`px-3 py-2 rounded-md text-sm font-medium ${
+                  isActive('/racer-input') 
+                    ? 'bg-gray-900 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                走者登録
               </Link>
               <Link
                 to="/rankings"
@@ -78,6 +78,16 @@ function Navbar() {
                 }`}
               >
                 ライブ結果
+              </Link>
+              <Link
+                to="/admin"
+                className={`px-3 py-2 rounded-md text-sm font-medium ${
+                  isActive('/admin') 
+                    ? 'bg-gray-900 text-white' 
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                管理画面
               </Link>
             </div>
           </div>
@@ -142,17 +152,6 @@ function Navbar() {
               ストップウォッチ
             </Link>
             <Link
-              to="/racer-input"
-              onClick={closeMenu}
-              className={`block px-3 py-2 rounded-md text-base font-medium ${
-                isActive('/racer-input') 
-                  ? 'bg-gray-900 text-white' 
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              ゼッケン入力
-            </Link>
-            <Link
               to="/team-management"
               onClick={closeMenu}
               className={`block px-3 py-2 rounded-md text-base font-medium ${
@@ -184,6 +183,17 @@ function Navbar() {
               }`}
             >
               ライブ結果
+            </Link>
+            <Link
+              to="/admin"
+              onClick={closeMenu}
+              className={`block px-3 py-2 rounded-md text-base font-medium ${
+                isActive('/admin') 
+                  ? 'bg-gray-900 text-white' 
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              管理画面
             </Link>
           </div>
         </div>
