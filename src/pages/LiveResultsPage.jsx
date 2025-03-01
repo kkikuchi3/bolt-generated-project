@@ -49,12 +49,12 @@ function LiveResultsPage() {
   // 時間のフォーマット
   const formatTime = (milliseconds) => {
     if (milliseconds === undefined || milliseconds === null) {
-      return '00:00:00.00';
+      return '00:00:00';
     }
     
     const ms = parseInt(milliseconds, 10);
     if (isNaN(ms)) {
-      return '00:00:00.00';
+      return '00:00:00';
     }
     
     const hours = Math.floor(ms / 3600000);
@@ -62,8 +62,11 @@ function LiveResultsPage() {
     const seconds = Math.floor((ms % 60000) / 1000);
     const centiseconds = Math.floor((ms % 1000) / 10);
     
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
+
+  // 結果を逆順にして最新のものを上に表示
+  const sortedResults = [...results].reverse();
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -122,16 +125,16 @@ function LiveResultsPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {results.map((result, index) => (
-                  <tr key={index}>
+                {sortedResults.map((result, index) => (
+                  <tr key={index} className={index === 0 ? "bg-blue-50" : ""}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {result.number}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {result.racer_name || '未選択'}
+                      {result.racer_name || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {result.team_name || '未所属'}
+                      {result.team_name || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap font-mono">
                       {formatTime(result.total_time)}
