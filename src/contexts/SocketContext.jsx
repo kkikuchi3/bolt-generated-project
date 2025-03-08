@@ -10,6 +10,8 @@ export function useSocket() {
 export function SocketProvider({ children }) {
   const [isConnected, setIsConnected] = useState(false)
   const [socket, setSocket] = useState(null)
+  const reconnectAttempts = useRef(0)
+  const maxReconnectAttempts = 10
 
   useEffect(() => {
     console.log('SocketProvider: Initializing socket connection')
@@ -23,21 +25,34 @@ export function SocketProvider({ children }) {
     // 新しいSocket.IOインスタンスを作成
     const newSocket = io(`http://${HOST}:${PORT}`, {
       transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: maxReconnectAttempts,
       reconnectionDelay: 1000,
-      timeout: 10000
+      timeout: 10000,
+      autoConnect: true
     })
 
     // 接続イベントのハンドラー
     newSocket.on('connect', () => {
       console.log('SocketProvider: Socket connected with ID:', newSocket.id)
       setIsConnected(true)
+      reconnectAttempts.current = 0
     })
 
     // 切断イベントのハンドラー
     newSocket.on('disconnect', (reason) => {
       console.log('SocketProvider: Socket disconnected, reason:', reason)
       setIsConnected(false)
+      
+      // 自動再接続が失敗した場合は手動で再接続を試みる
+      if (reason === 'io server disconnect' || reason === 'transport close') {
+        console.log('SocketProvider: Attempting manual reconnection')
+        setTimeout(() => {
+          if (reconnectAttempts.current < maxReconnectAttempts) {
+            reconnectAttempts.current++
+            newSocket.connect()
+          }
+        }, 1000)
+      }
     })
 
     // 再接続イベントのハンドラー

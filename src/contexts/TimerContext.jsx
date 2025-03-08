@@ -19,6 +19,7 @@ export function TimerProvider({ children }) {
   const initialized = useRef(false)
   const resetAttempted = useRef(false)
   const clearConfirmed = useRef(false)
+  const isPageReload = useRef(true)
 
   // ローカルストレージから状態を復元（初回のみ）
   useEffect(() => {
@@ -56,8 +57,9 @@ export function TimerProvider({ children }) {
         }
         
         if (parsedState.resultsCleared) {
-          setResultsCleared(true);
-          resetAttempted.current = true;
+          setResultsCleared(parsedState.resultsCleared);
+          // ページリロード時はリセット試行フラグを設定しない
+          resetAttempted.current = false;
         }
         
         if (parsedState.clearId) {
@@ -69,6 +71,12 @@ export function TimerProvider({ children }) {
     }
     
     initialized.current = true;
+    
+    // ページロード完了後、リロードフラグをリセット
+    setTimeout(() => {
+      isPageReload.current = false;
+      console.log('TimerContext: Page reload flag reset');
+    }, 2000);
   }, []);
 
   // 状態をローカルストレージに保存
@@ -103,7 +111,7 @@ export function TimerProvider({ children }) {
     const handleLiveResults = (data) => {
       console.log('TimerContext: Received live results:', data);
       // リセット状態の場合はデータを無視
-      if (resultsCleared || resetAttempted.current) {
+      if (resultsCleared && resetAttempted.current) {
         console.log('TimerContext: Ignoring live results due to reset state');
         return;
       }
@@ -140,12 +148,14 @@ export function TimerProvider({ children }) {
       console.log('TimerContext: Connected to server');
       
       // リセット済みの場合はサーバーのデータをクリア
-      if (resultsCleared || resetAttempted.current) {
+      // ただし、ページリロード時は実行しない
+      if (resultsCleared && resetAttempted.current && !isPageReload.current) {
         console.log('TimerContext: Clearing results on reconnect');
-        socket.emit('notifyReset'); // リセット状態を通知
+        socket.emit('notifyReset', { explicit: true }); // 明示的なリセット通知
         socket.emit('clearResults');
         resetAttempted.current = false;
       } else {
+        console.log('TimerContext: Requesting live results without reset');
         socket.emit('getLiveResults');
       }
     }
@@ -165,8 +175,8 @@ export function TimerProvider({ children }) {
     const lastReset = localStorage.getItem('lastReset');
     const lastSync = localStorage.getItem('lastSync');
     
-    // リセット後に同期していない場合
-    if (lastReset && (!lastSync || parseInt(lastReset) > parseInt(lastSync))) {
+    // リセット後に同期していない場合、かつ明示的なリセット操作があった場合のみ
+    if (lastReset && (!lastSync || parseInt(lastReset) > parseInt(lastSync)) && resetAttempted.current) {
       setResultsCleared(true);
       
       // サーバーに接続している場合は通知
@@ -245,6 +255,7 @@ export function TimerProvider({ children }) {
     setLaps([]);
     setStartTime(null);
     setResultsCleared(true);
+    resetAttempted.current = true;
     
     // リセット情報をローカルストレージに保存
     try {

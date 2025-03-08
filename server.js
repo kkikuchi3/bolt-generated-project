@@ -241,8 +241,29 @@ io.on('connection', (socket) => {
     }
   });
   
+  socket.on('notifyReset', (data) => {
+    console.log('リセット通知を受信:', data);
+    
+    if (data && data.onInitialization) {
+      console.log('初期化時のリセット通知は無視します');
+      return;
+    }
+    
+    if (data && data.explicit) {
+      console.log('明示的なリセット通知を受け取りました');
+      socket.resetNotified = true;
+    } else {
+      console.log('非明示的なリセット通知は無視します');
+    }
+  });
+  
   socket.on('clearResults', async () => {
     console.log('結果のクリアリクエストを受信');
+    
+    if (!socket.resetNotified) {
+      console.log('リセット通知なしでのクリアリクエストは無視します');
+      return;
+    }
     
     try {
       if (!dbConnection) {
@@ -258,6 +279,8 @@ io.on('connection', (socket) => {
     } catch (error) {
       console.error('結果のクリア中にエラーが発生:', error);
     }
+    
+    socket.resetNotified = false;
   });
   
   socket.on('disconnect', () => {
